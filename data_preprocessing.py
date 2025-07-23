@@ -156,8 +156,8 @@ def save_processed_data(df, save_path):
 # 主函数
 def main():
     # 文件路径
-    raw_file = r'D:\machine_learning\pythonProject1\data\上证指数历史数据.csv'
-    processed_file = r'D:\machine_learning\pythonProject1\data\上证指数_processed.csv'
+    raw_file = r'D:\machine_learning\pythonProject1\data\纳斯达克100指数(25年数据集).csv'
+    processed_file = r'D:\machine_learning\pythonProject1\data\纳斯达克100指数(25年数据集)_processed.csv'
 
     # 1. 加载数据
     print("加载原始数据...")

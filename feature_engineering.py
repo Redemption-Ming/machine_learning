@@ -125,9 +125,9 @@ def split_data(df, test_size=0.2):
 
 def main():
     # File paths
-    processed_file = r'D:\machine_learning\pythonProject1\data\上证指数_processed.csv'
-    output_features_file = r'D:\machine_learning\pythonProject1\data\上证指数_index_with_features.csv'
-    output_target_file = r'D:\machine_learning\pythonProject1\data\上证指数_target_next_day_close.csv'  # New file for target
+    processed_file = r'D:\machine_learning\pythonProject1\data\纳斯达克100指数(25年数据集)_processed.csv'
+    output_features_file = r'D:\machine_learning\pythonProject1\data\纳斯达克100指数(25年数据集)_index_with_features.csv'
+    output_target_file = r'D:\machine_learning\pythonProject1\data\纳斯达克100指数(25年数据集)_target_next_day_close.csv'  # New file for target
 
     # Read preprocessed data
     print("读取预处理后的数据...")

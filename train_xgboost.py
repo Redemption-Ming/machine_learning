@@ -7,6 +7,7 @@ from sklearn.linear_model import LinearRegression, Ridge, Lasso
 from sklearn.preprocessing import StandardScaler  # Added for robust scaling
 import warnings
 import joblib  # Import joblib for saving/loading models
+import os  # Import os module to create directory
 
 # Ignore warnings
 warnings.filterwarnings('ignore')
@@ -67,6 +68,9 @@ def train_evaluate_models(X_train, X_test, y_train, y_test):
     results = []
     trained_models = {}  # Dictionary to store trained models
 
+    # Get the '收盘' (closing price) from X_test to determine actual direction
+    current_day_close_test = X_test['收盘']
+
     for name, model in models.items():
         print(f"\nTraining {name} model...")
 
@@ -77,23 +81,35 @@ def train_evaluate_models(X_train, X_test, y_train, y_test):
         # Predict
         y_pred = model.predict(X_test)
 
-        # Evaluation metrics
+        # Evaluation metrics for regression
         mae = mean_absolute_error(y_test, y_pred)
         rmse = np.sqrt(mean_squared_error(y_test, y_pred))
         r2 = r2_score(y_test, y_pred)
+
+        # --- Calculate Directional Accuracy ---
+        # True direction: 1 for up (next day close > current day close), -1 for down, 0 for no change
+        true_direction = np.sign(y_test - current_day_close_test)
+
+        # Predicted direction: 1 for up, -1 for down, 0 for no change
+        predicted_direction = np.sign(y_pred - current_day_close_test)
+
+        # Calculate accuracy where true direction matches predicted direction
+        directional_accuracy = np.mean(true_direction == predicted_direction)
 
         # Save results
         results.append({
             'Model': name,
             'MAE': mae,
             'RMSE': rmse,
-            'R²': r2
+            'R²': r2,
+            'Directional Accuracy': directional_accuracy  # New metric
         })
 
         print(f"{name} Evaluation Results:")
         print(f"MAE: {mae:.2f}")
         print(f"RMSE: {rmse:.2f}")
         print(f"R²: {r2:.4f}")
+        print(f"Directional Accuracy: {directional_accuracy:.2%}")  # Print as percentage
 
         # Visualize prediction results
         plt.figure(figsize=(12, 6))
@@ -120,8 +136,12 @@ def main():
     target_file = r'D:\machine_learning\pythonProject1\data\纳斯达克100_target_next_day_close.csv'
 
     # Define paths for saving model and scaler
-    model_save_base_path = r'D:\machine_learning\pythonProject1\best_stock_prediction_model'  # Base name for saving
-    scaler_save_path = r'D:\machine_learning\pythonProject1\feature_scaler.joblib'
+    # Modified path to save models in the 'model' subdirectory
+    model_dir = r'D:\machine_learning\pythonProject1\model'
+    os.makedirs(model_dir, exist_ok=True)  # Create the directory if it doesn't exist
+
+    model_save_base_path = os.path.join(model_dir, r'best_stock_prediction_model')  # Base name for saving
+    scaler_save_path = os.path.join(model_dir, r'feature_scaler.joblib')
 
     # 1. Load data (features and target separately)
     X_df, y_series = load_features_and_target_data(features_file, target_file)
@@ -133,6 +153,24 @@ def main():
     results_df, trained_traditional_models = train_evaluate_models(X_train, X_test, y_train, y_test)
 
     results_df = results_df.sort_values('MAE')  # Re-sort after potential removal
+
+    print("\nAll Models Final Evaluation Results:")
+    print(results_df)
+
+    # 6. Visualize model comparison
+    plt.figure(figsize=(14, 8))
+    plt.subplot(2, 1, 1)
+    sns.barplot(x='Model', y='MAE', data=results_df.sort_values('MAE'))
+    plt.title('Model MAE Comparison')
+    plt.xticks(rotation=45)
+
+    plt.subplot(2, 1, 2)
+    sns.barplot(x='Model', y='R²', data=results_df.sort_values('R²', ascending=False))
+    plt.title('Model R² Comparison')
+    plt.xticks(rotation=45)
+
+    plt.tight_layout()
+    plt.show()
 
     # 7. Save the best model and its scaler
     print("\nSaving the best model and its scaler...")
