@@ -9,6 +9,7 @@ import warnings
 import joblib
 import os
 from itertools import product
+from sklearn.utils import class_weight  # Import class_weight from sklearn
 
 # Import TensorFlow and Keras for building the Transformer model
 import tensorflow as tf
@@ -46,37 +47,93 @@ def load_features_and_target_data(features_file_path, target_file_path):
     return X_df, y_series
 
 
-# 修改prepare_data_for_classification函数
 def prepare_data_for_classification(X_df, y_series, window_size=30):
-    # 删除原始收盘价列（防止数据泄露）
-    if '收盘' in X_df.columns:
-        X_df = X_df.drop(columns=['收盘'])
+    """
+    Prepare training and testing data for classification.
+    Converts the 'next_day_close' target into a binary 'direction' target.
+    This version creates sequences for Transformer input.
+    准备用于分类的训练和测试数据。
+    将“next_day_close”目标转换为二分类的“方向”目标。
+    此版本为Transformer输入创建序列。
+    """
+    # Ensure X_df and y_series are aligned and sorted by date
+    # This should already be handled by load_features_and_target_data, but good to re-confirm.
+    X_df = X_df.sort_index()
+    y_series = y_series.sort_index()
 
-    # 创建时间窗口序列
+    # To calculate direction, we need the 'current day close' and 'next day close'.
+    # 'y_series' is 'next_day_close'.
+    # We need the 'current_day_close' which is effectively 'y_series' shifted by one day.
+    # We will use the 'next_day_close' from the previous day as the 'current_day_close'
+    # for the current prediction.
+    # Let's create a temporary series that represents the 'closing price' for each date
+    # by taking the 'next_day_close' and shifting it back.
+    # This assumes y_series is the target for X_df's date.
+
+    # If y_series is 'next_day_close' for the date in X_df's index,
+    # then the 'current_day_close' for X_df.index[i] is y_series.iloc[i-1]
+    # However, this is problematic for the first element.
+    # A more robust way is to re-introduce the original '收盘' for comparison if it's available.
+    # But since feature_engineering.py removes it, we must use y_series.
+
+    # Let's assume y_series is the 'next_day_close' corresponding to the features in X_df.
+    # So, for X_df.iloc[i], y_series.iloc[i] is the target.
+    # The 'current_day_close' to compare against would be the closing price *on the day corresponding to X_df.iloc[i]*.
+    # Since X_df has no '收盘' after feature engineering, we must use y_series.shift(1)
+    # to get the 'current_day_close' value.
+
+    # Create a combined series of historical closing prices (from y_series shifted)
+    # This represents the actual closing price on each given date.
+    # y_series is 'next_day_close', so y_series.shift(1) is 'current_day_close'
+    # We need to drop the first NaN from shift.
+    current_day_close_for_direction = y_series.shift(1).dropna()
+
+    # Align X_df and y_series and current_day_close_for_direction
+    common_index_for_direction = X_df.index.intersection(y_series.index).intersection(
+        current_day_close_for_direction.index)
+    X_df = X_df.loc[common_index_for_direction]
+    y_series = y_series.loc[common_index_for_direction]
+    current_day_close_for_direction = current_day_close_for_direction.loc[common_index_for_direction]
+
+    # Create the binary target variable: 1 if price increases, 0 otherwise
+    # y_series is next_day_close, current_day_close_for_direction is current_day_close
+    y_direction_full = (y_series > current_day_close_for_direction).astype(int)
+
+    # Convert X_df to numpy array for sequence creation
+    X_values = X_df.values
+    y_direction_values = y_direction_full.values.reshape(-1, 1)  # Ensure it's (N, 1)
+
     X_sequences = []
-    y_direction = []
+    y_sequences_direction = []
 
-    for i in range(window_size, len(X_df)):
-        # 窗口序列特征 (window_size, num_features)
-        seq = X_df.iloc[i - window_size:i].values
-        # 比较次日收盘与当日收盘
-        current_close = X_df.iloc[i - 1]['调整收盘']  # 使用调整后收盘价
-        next_close = y_series.iloc[i]
-        direction = 1 if next_close > current_close else 0
+    # Create sequences for Transformer input
+    # The loop should start from window_size to ensure enough historical data for each sequence
+    for i in range(window_size, len(X_values)):
+        # X_sequences: (window_size, num_features) for each sample
+        seq = X_values[i - window_size:i]
         X_sequences.append(seq)
-        y_direction.append(direction)
 
-    # 转换为3D数组 (samples, timesteps, features)
+        # y_sequences_direction: The direction for the *last day* in the sequence, or the day *after* the sequence
+        # We want to predict the direction for the day corresponding to X_values[i]
+        # which means comparing y_series.iloc[i] with current_day_close_for_direction.iloc[i]
+        y_sequences_direction.append(y_direction_values[i])
+
+    # Convert to 3D arrays (samples, timesteps, features)
     X_seq_array = np.array(X_sequences)
-    y_dir_array = np.array(y_direction).reshape(-1, 1)
+    y_dir_array = np.array(y_sequences_direction)  # Already (N, 1) from previous reshape
 
-    # 划分训练测试集 (保留时间顺序)
+    # Time series split: first 80% for training, last 20% for testing
     split_index = int(len(X_seq_array) * 0.8)
     X_train, X_test = X_seq_array[:split_index], X_seq_array[split_index:]
-    y_train, y_test = y_dir_array[:split_index], y_dir_array[split_index:]
+    y_train_direction, y_test_direction = y_dir_array[:split_index], y_dir_array[split_index:]
 
-    print(f"序列数据形状: X_train{X_train.shape}, y_train{y_train.shape}")
-    return X_train, X_test, y_train, y_test
+    print(f"Sequence data shape: X_train{X_train.shape}, y_train{y_train_direction.shape}")
+    print(
+        f"Training target (direction) distribution:\n{pd.Series(y_train_direction.flatten()).value_counts(normalize=True)}")
+    print(
+        f"Test target (direction) distribution:\n{pd.Series(y_test_direction.flatten()).value_counts(normalize=True)}")
+
+    return X_train, X_test, y_train_direction, y_test_direction
 
 
 # --- Transformer Model Components ---
@@ -156,17 +213,19 @@ class TransformerBlock(layers.Layer):
         return self.layernorm2(out1 + ffn_output)
 
 
-def build_transformer_classifier_model(input_shape, embed_dim, num_heads, ff_dim,
-                                       num_transformer_blocks, mlp_units, dropout_rate):
+def build_transformer_classifier_model(input_shape, embed_dim, num_heads, ff_dim, num_transformer_blocks, mlp_units,
+                                       dropout_rate):
     # 输入形状应为 (timesteps, features)
     inputs = keras.Input(shape=input_shape)  # 例如(30,18)
 
-    # 位置编码层（新增）
+    # 位置编码层
+    # input_shape[0] is timesteps (window_size)
     positions = tf.range(start=0, limit=input_shape[0], delta=1)
     position_embedding = layers.Embedding(
         input_dim=input_shape[0], output_dim=embed_dim)(positions)
 
     # 特征嵌入
+    # Apply Dense layer to the last dimension (features)
     x = layers.Dense(embed_dim)(inputs)  # (batch, timesteps, embed_dim)
     x += position_embedding  # 加入位置信息
 
@@ -187,7 +246,7 @@ def build_transformer_classifier_model(input_shape, embed_dim, num_heads, ff_dim
     return model
 
 
-def train_evaluate_transformer_classifier(X_train_scaled_df, X_test_scaled_df, y_train_direction, y_test_direction,
+def train_evaluate_transformer_classifier(X_train_scaled, X_test_scaled, y_train_direction, y_test_direction,
                                           embed_dim, num_heads, ff_dim, num_transformer_blocks, mlp_units,
                                           dropout_rate):
     """
@@ -204,7 +263,8 @@ def train_evaluate_transformer_classifier(X_train_scaled_df, X_test_scaled_df, y
     print("-" * 60)
 
     # Build the model
-    input_shape = (X_train_scaled_df.shape[1],)  # Input shape is just the number of features
+    # X_train_scaled.shape[1] is window_size, X_train_scaled.shape[2] is num_features
+    input_shape = (X_train_scaled.shape[1], X_train_scaled.shape[2])
     model = build_transformer_classifier_model(input_shape, embed_dim, num_heads, ff_dim, num_transformer_blocks,
                                                mlp_units, dropout_rate)
 
@@ -219,25 +279,32 @@ def train_evaluate_transformer_classifier(X_train_scaled_df, X_test_scaled_df, y
     callbacks = [
         keras.callbacks.EarlyStopping(monitor="val_loss", patience=10, restore_best_weights=True)
     ]
-    class_counts = np.bincount(y_train_direction.flatten())
-    class_weights = {0: sum(class_counts)/class_counts[0],
-                     1: sum(class_counts)/class_counts[1]}
+
+    # Calculate class weights for imbalanced datasets using sklearn utility
+    classes = np.unique(y_train_direction.flatten())
+    computed_class_weights = class_weight.compute_class_weight(
+        'balanced', classes=classes, y=y_train_direction.flatten()
+    )
+    class_weights = {c: w for c, w in zip(classes, computed_class_weights)}
+
+    print(f"Calculated class weights: {class_weights}")
+
     # Train the model
     history = model.fit(
-        X_train_scaled_df, y_train_direction,
+        X_train_scaled, y_train_direction,  # Use X_train_scaled (3D array)
         class_weight=class_weights,  # 关键平衡参数
-        batch_size=32,
-        epochs=100,
-        validation_split=0.1,
+        batch_size=32,  # You can make batch_size a hyperparameter too
+        epochs=100,  # Max epochs, early stopping will stop it
+        validation_split=0.1,  # Use a small part of training data for validation
         callbacks=callbacks,
-        verbose=1
+        verbose=1  # Show training progress
     )
 
     # Evaluate the model on the test set
-    loss, accuracy, precision, recall, roc_auc = model.evaluate(X_test_scaled_df, y_test_direction, verbose=0)
+    loss, accuracy, precision, recall, roc_auc = model.evaluate(X_test_scaled, y_test_direction, verbose=0)
 
     # Predict probabilities for ROC AUC (model.evaluate only gives scalar AUC if metric is added)
-    y_pred_proba = model.predict(X_test_scaled_df).flatten()
+    y_pred_proba = model.predict(X_test_scaled).flatten()
     y_pred_direction = (y_pred_proba > 0.5).astype(int)  # Convert probabilities to binary predictions
 
     # Calculate F1-score and classification report manually
@@ -281,17 +348,29 @@ def main():
     X_df, y_series = load_features_and_target_data(features_file, target_file)
 
     # 2. Prepare data for classification (split into train/test and create binary target)
-    X_train, X_test, y_train_direction, y_test_direction = prepare_data_for_classification(X_df, y_series)
+    # Pass window_size to prepare_data_for_classification
+    window_size = 30  # Define your desired window size for the Transformer
+    X_train, X_test, y_train_direction, y_test_direction = prepare_data_for_classification(X_df, y_series,
+                                                                                           window_size=window_size)
 
     # 3. Scale the features
     print("\nScaling features...")
-    scaler = StandardScaler()
-    X_train_scaled = scaler.fit_transform(X_train)
-    X_test_scaled = scaler.transform(X_test)
+    # Reshape X_train and X_test for scaling: (samples * timesteps, features)
+    # Then reshape back to (samples, timesteps, features)
+    num_samples_train, timesteps_train, num_features_train = X_train.shape
+    num_samples_test, timesteps_test, num_features_test = X_test.shape
 
-    # Convert scaled arrays back to DataFrames to retain column names for clarity
-    X_train_scaled_df = pd.DataFrame(X_train_scaled, columns=X_train.columns, index=X_train.index)
-    X_test_scaled_df = pd.DataFrame(X_test_scaled, columns=X_test.columns, index=X_test.index)
+    X_train_reshaped = X_train.reshape(-1, num_features_train)
+    X_test_reshaped = X_test.reshape(-1, num_features_test)
+
+    scaler = StandardScaler()
+    X_train_scaled_reshaped = scaler.fit_transform(X_train_reshaped)
+    X_test_scaled_reshaped = scaler.transform(X_test_reshaped)
+
+    X_train_scaled = X_train_scaled_reshaped.reshape(num_samples_train, timesteps_train, num_features_train)
+    X_test_scaled = X_test_scaled_reshaped.reshape(num_samples_test, timesteps_test, num_features_test)
+
+    print(f"Scaled sequence data shape: X_train_scaled{X_train_scaled.shape}, X_test_scaled{X_test_scaled.shape}")
 
     # --- Hyperparameter Tuning for Transformer Classifier ---
     print("\nStarting manual hyperparameter tuning for Transformer Classifier...")
@@ -344,7 +423,7 @@ def main():
         print(f"\n--- Testing combination {current_combination_idx}/{total_combinations} ---")
 
         transformer_model, transformer_results = train_evaluate_transformer_classifier(
-            X_train_scaled_df, X_test_scaled_df, y_train_direction, y_test_direction,
+            X_train_scaled, X_test_scaled, y_train_direction, y_test_direction,  # Pass scaled 3D arrays
             embed_dim, num_heads, ff_dim, num_blocks, mlp_units, dropout_rate
         )
         all_results.append(transformer_results)
@@ -389,9 +468,10 @@ def main():
     # 7. Save the best Transformer model and the scaler
     if best_model:  # Check if a best model was found
         # Create a unique name for the best model based on its parameters
-        hls_str = str(best_params['mlp_units']).replace(" ", "").replace("(", "").replace(")", "").replace(",", "_")
+        mlp_units_str = str(best_params['mlp_units']).replace(" ", "").replace("(", "").replace(")", "").replace(",",
+                                                                                                                 "_")
         model_save_path = os.path.join(model_dir,
-                                       f'best_stock_prediction_model_Transformer_Classifier_ed{best_params["embed_dim"]}_nh{best_params["num_heads"]}_ff{best_params["ff_dim"]}_nb{best_params["num_transformer_blocks"]}_mlp{hls_str}_dr{str(best_params["dropout_rate"]).replace(".", "")}.h5')
+                                       f'best_stock_prediction_model_Transformer_Classifier_ed{best_params["embed_dim"]}_nh{best_params["num_heads"]}_ff{best_params["ff_dim"]}_nb{best_params["num_transformer_blocks"]}_mlp{mlp_units_str}_dr{str(best_params["dropout_rate"]).replace(".", "")}.h5')
         scaler_save_path = os.path.join(model_dir, f'feature_scaler_Transformer_Classifier.joblib')
 
         # Save Keras model in .h5 format
