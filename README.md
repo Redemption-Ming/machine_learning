@@ -2,7 +2,7 @@
 
 项目简介
 
-本项目旨在通过机器学习方法，对股票的次日收盘价进行预测，这里以纳斯达克100指数为例。项目涵盖了从原始数据清洗、特征工程、模型训练与评估到最佳模型保存的完整流程。目前，项目主要使用线性回归模型进行预测，并评估了其在价格预测和涨跌方向预测上的表现。
+本项目旨在通过机器学习方法，对股票的次日收盘价进行预测，这里以纳斯达克100指数为例。项目涵盖了从原始数据清洗、特征工程、模型训练与评估到最佳模型保存的完整流程。目前，项目主要使用线性回归模型、MLP非线性回归模型进行价格预测，并使用Transformer模型进行涨跌方向的二分类预测，全面评估了它们在不同任务上的表现。
 
 项目功能
 
@@ -12,50 +12,54 @@
 
 目标变量分离： 将预测目标（次日收盘价）从特征数据中独立分离并保存，避免数据泄露。
 
-模型训练与评估： 训练并评估线性回归、岭回归和Lasso回归模型，使用MAE、RMSE、R²和涨跌方向准确率等指标进行性能衡量。
+模型训练与评估： 训练并评估线性回归（包括线性回归、岭回归和Lasso回归）、多层感知机（MLP）回归模型，以及基于Transformer的二分类模型。使用MAE、RMSE、R²和涨跌方向准确率等指标进行回归模型性能衡量；使用准确率、精确率、召回率、F1分数、ROC AUC等指标进行分类模型性能衡量。
+
+特征相关性分析： 对特征工程后的数据进行相关性分析，并可视化为热力图，帮助理解特征间的关系。
 
 最佳模型保存： 自动选择表现最佳的模型，并在完整数据集上重新训练后，将其与特征缩放器一同保存，以便后续部署和预测。
 
 项目结构
+
 .
 ├── data/
 
-│   ├── 纳斯达克100指数历史数据.csv  # 原始数据文件 (需要用户自行提供)
+│   ├── 纳斯达克100指数历史数据.csv  # 原始数据文件 (需要用户自行提供)
 
-│   ├── 纳斯达克100指数_processed.csv # 预处理后的数据 (由data_preprocessing.py生成)
+│   ├── 纳斯达克100指数_processed.csv # 预处理后的数据 (由data_preprocessing.py生成)
 
-│   ├── 纳斯达克100_index_with_features.csv # 包含特征但不含目标变量的数据 (由feature_engineering.py生成)
+│   ├── 纳斯达克100_index_with_features.csv # 包含特征但不含目标变量的数据 (由feature_engineering.py生成)
 
-│   └── 纳斯达克100_target_next_day_close.csv # 仅包含日期和目标变量的数据 (由feature_engineering.py生成)
+│   └── 纳斯达克100_target_next_day_close.csv # 仅包含日期和目标变量的数据 (由feature_engineering.py生成)
 
-├── data_preprocessing.py          # 数据预处理脚本
+├── data_preprocessing.py          # 数据预处理脚本
 
-├── feature_engineering.py         # 特征工程脚本
+├── feature_engineering.py          # 特征工程脚本
 
-└── train_xgboost.py               # 模型训练、评估与保存脚本 (目前仅包含线性模型)
+├── train_xgboost.py                # 线性模型训练、评估与保存脚本
 
-└── README.md                      # 项目说明文件
+├── train_mlp.py                     # MLP回归模型训练、评估与保存脚本
 
-└── requirements.txt               # 项目依赖库文件 (需要手动创建)
+├── train_transformer_classifier.py  # Transformer分类模型训练、评估与保存脚本
+
+├── feature_correlation_analysis.py  # 特征相关性分析脚本
+
+├── README.md                      # 项目说明文件
+
+└── requirements.txt                # 项目依赖库文件 (需要手动创建)
 
 环境搭建
 
 克隆仓库：
 
 git clone <你的GitHub仓库URL>
-
 cd <你的项目文件夹>
 
 创建并激活虚拟环境 (推荐)：
 
 python -m venv .venv
-
 # Windows
-
 .venv\Scripts\activate
-
 # macOS/Linux
-
 source .venv/bin/activate
 
 安装依赖：
@@ -63,17 +67,14 @@ source .venv/bin/activate
 请手动创建一个 requirements.txt 文件，内容如下：
 
 pandas
-
 numpy
-
 scikit-learn
-
 matplotlib
-
 seaborn
-
 joblib
-
+tensorflow
+flask
+flask-cors
 
 然后运行：
 
@@ -85,7 +86,7 @@ pip install -r requirements.txt
 
 使用方法
 
-按照以下顺序运行脚本，完成数据处理、特征工程和模型训练：
+按照以下顺序运行脚本，完成数据处理、特征工程、模型训练和相关性分析：
 
 运行数据预处理：
 
@@ -99,11 +100,29 @@ python feature_engineering.py
 
 此脚本将读取 纳斯达克100指数_processed.csv，生成各种预测特征，并将特征和目标变量分别保存到 纳斯达克100_index_with_features.csv 和 纳斯达克100_target_next_day_close.csv。
 
-运行模型训练与评估：
+运行特征相关性分析：
+
+python feature_correlation_analysis.py
+
+此脚本将读取 纳斯达克100_index_with_features.csv，计算特征相关性矩阵，并生成热力图保存到 result_figure/ 目录下。
+
+运行模型训练与评估（线性模型）：
 
 python train_xgboost.py
 
-此脚本将加载特征和目标数据，划分训练集和测试集，训练并评估线性回归模型，打印详细的评估结果（包括MAE、RMSE、R²和涨跌方向准确率），并生成模型性能对比图。最后，它会将表现最佳的模型和特征缩放器保存到项目根目录。
+此脚本将加载特征和目标数据，划分训练集和测试集，训练并评估线性回归模型，打印详细的评估结果（包括MAE、RMSE、R²和涨跌方向准确率），并生成模型性能对比图。最后，它会将表现最佳的线性模型和特征缩放器保存到项目根目录。
+
+运行模型训练与评估（MLP回归模型）：
+
+python train_mlp.py
+
+此脚本将加载特征和目标数据，划分训练集和测试集，训练并评估多层感知机（MLP）回归模型，打印详细的评估结果，并生成MLP预测结果图。最后，它会将表现最佳的MLP模型和特征缩放器保存到项目根目录。
+
+运行模型训练与评估（Transformer分类模型）：
+
+python train_transformer_classifier.py
+
+此脚本将加载特征和目标数据，将其转换为序列数据，划分训练集和测试集，训练并评估基于Transformer的二分类模型，打印详细的分类评估结果。最后，它会将表现最佳的Transformer模型和特征缩放器保存到项目根目录。
 
 结果与评估
 
@@ -111,17 +130,131 @@ python train_xgboost.py
 
 Model Evaluation Results Comparison:
 
-              Model        MAE        RMSE        R²  Directional Accuracy
-              
-2   Lasso Regression 209.901629 306.049962  0.934518              0.486726
+Model
 
-1   Ridge Regression 210.115884 306.202889  0.934453              0.486726
+MAE
 
-0  Linear Regression 210.116370 306.203078  0.934453              0.486726
+RMSE
 
-MAE, RMSE, R²： 这些指标衡量了模型预测具体收盘价的准确性。较高的R²和较低的MAE/RMSE表示模型在数值预测上表现良好。
+R²
 
-涨跌方向准确率： 衡量模型预测次日涨跌方向的正确率。当前结果显示，线性模型在方向预测上的准确率约为48.67%，略低于随机猜测（50%），这表明回归模型在优化数值预测的同时，可能无法很好地捕捉到涨跌方向的细微变化。
+Directional Accuracy
+
+Accuracy
+
+Precision
+
+Recall
+
+F1-Score
+
+ROC AUC
+
+Lasso Regression
+
+209.90
+
+306.05
+
+0.9345
+
+0.486726
+
+-
+
+-
+
+-
+
+-
+
+-
+
+Ridge Regression
+
+210.12
+
+306.20
+
+0.9345
+
+0.486726
+
+-
+
+-
+
+-
+
+-
+
+-
+
+Linear Regression
+
+210.12
+
+306.20
+
+0.9345
+
+0.486726
+
+-
+
+-
+
+-
+
+-
+
+-
+
+MLP Regressor
+
+220.71
+
+220.71
+
+0.9912
+
+0.4942
+
+-
+
+-
+
+-
+
+-
+
+-
+
+Transformer Classifier
+
+-
+
+-
+
+-
+
+-
+
+0.5568
+
+0.56
+
+1.00
+
+0.72
+
+0.5086
+
+MAE, RMSE, R²： 这些指标衡量了回归模型预测具体收盘价的准确性。较高的R²和较低的MAE/RMSE表示模型在数值预测上表现良好。
+
+涨跌方向准确率： 衡量回归模型预测次日涨跌方向的正确率。当前结果显示，线性模型和MLP回归模型在方向预测上的准确率接近50%，这表明回归模型在优化数值预测的同时，可能无法很好地捕捉到涨跌方向的细微变化。
+
+分类指标 (Accuracy, Precision, Recall, F1-Score, ROC AUC)： 这些指标衡量了分类模型预测涨跌方向的性能。Transformer分类模型在测试集上表现出55.68%的准确率。然而，其召回率为1.00，但精确率较低，F1分数和ROC AUC也一般，这表明模型可能存在倾向于预测多数类的问题，需要进一步优化。
 
 未来改进方向
 
@@ -147,6 +280,14 @@ MAE, RMSE, R²： 这些指标衡量了模型预测具体收盘价的准确性�
 
 采用时间序列交叉验证等更稳健的评估方法。
 
+针对 Transformer 分类模型的优化：
+
+类别不平衡处理： 尽管已使用 class_weight，但如果模型仍倾向于预测多数类，可能需要更激进的策略，例如过采样 (Oversampling) 或欠采样 (Undersampling)，或调整分类阈值。
+
+模型结构调整： 尝试增加 Transformer Block 的数量、调整 embed_dim、num_heads、ff_dim、mlp_units 和 dropout_rate，以增强模型学习复杂模式的能力。
+
+损失函数： 探索 Focal Loss 等专门用于处理类别不平衡的损失函数。
+
 模型可解释性：
 
 使用SHAP或LIME等工具，解释模型预测的驱动因素，增强模型透明度。
@@ -162,5 +303,3 @@ MAE, RMSE, R²： 这些指标衡量了模型预测具体收盘价的准确性�
 贡献
 
 欢迎对本项目提出建议或贡献代码！如果您有任何问题或改进意见，请随时通过GitHub Issues提出。
-
-
