@@ -11,7 +11,6 @@ import os
 from itertools import product
 from sklearn.utils import class_weight  # Import class_weight from sklearn
 
-# Import TensorFlow and Keras for building the Transformer model
 import tensorflow as tf
 from tensorflow import keras
 from tensorflow.keras import layers
@@ -50,58 +49,19 @@ def load_features_and_target_data(features_file_path, target_file_path):
 def prepare_data_for_classification(X_df, y_series, window_size=30):
     """
     Prepare training and testing data for classification.
-    Converts the 'next_day_close' target into a binary 'direction' target.
-    This version creates sequences for Transformer input.
+    This version creates sequences for Transformer input using the pre-calculated direction target.
     准备用于分类的训练和测试数据。
-    将“next_day_close”目标转换为二分类的“方向”目标。
-    此版本为Transformer输入创建序列。
+    此版本使用预先计算的方向目标为Transformer输入创建序列。
     """
     # Ensure X_df and y_series are aligned and sorted by date
-    # This should already be handled by load_features_and_target_data, but good to re-confirm.
     X_df = X_df.sort_index()
     y_series = y_series.sort_index()
 
-    # To calculate direction, we need the 'current day close' and 'next day close'.
-    # 'y_series' is 'next_day_close'.
-    # We need the 'current_day_close' which is effectively 'y_series' shifted by one day.
-    # We will use the 'next_day_close' from the previous day as the 'current_day_close'
-    # for the current prediction.
-    # Let's create a temporary series that represents the 'closing price' for each date
-    # by taking the 'next_day_close' and shifting it back.
-    # This assumes y_series is the target for X_df's date.
-
-    # If y_series is 'next_day_close' for the date in X_df's index,
-    # then the 'current_day_close' for X_df.index[i] is y_series.iloc[i-1]
-    # However, this is problematic for the first element.
-    # A more robust way is to re-introduce the original '收盘' for comparison if it's available.
-    # But since feature_engineering.py removes it, we must use y_series.
-
-    # Let's assume y_series is the 'next_day_close' corresponding to the features in X_df.
-    # So, for X_df.iloc[i], y_series.iloc[i] is the target.
-    # The 'current_day_close' to compare against would be the closing price *on the day corresponding to X_df.iloc[i]*.
-    # Since X_df has no '收盘' after feature engineering, we must use y_series.shift(1)
-    # to get the 'current_day_close' value.
-
-    # Create a combined series of historical closing prices (from y_series shifted)
-    # This represents the actual closing price on each given date.
-    # y_series is 'next_day_close', so y_series.shift(1) is 'current_day_close'
-    # We need to drop the first NaN from shift.
-    current_day_close_for_direction = y_series.shift(1).dropna()
-
-    # Align X_df and y_series and current_day_close_for_direction
-    common_index_for_direction = X_df.index.intersection(y_series.index).intersection(
-        current_day_close_for_direction.index)
-    X_df = X_df.loc[common_index_for_direction]
-    y_series = y_series.loc[common_index_for_direction]
-    current_day_close_for_direction = current_day_close_for_direction.loc[common_index_for_direction]
-
-    # Create the binary target variable: 1 if price increases, 0 otherwise
-    # y_series is next_day_close, current_day_close_for_direction is current_day_close
-    y_direction_full = (y_series > current_day_close_for_direction).astype(int)
+    # y_series already contains the binary direction target (0 or 1)
+    y_direction_values = y_series.values.reshape(-1, 1)  # Ensure it's (N, 1)
 
     # Convert X_df to numpy array for sequence creation
     X_values = X_df.values
-    y_direction_values = y_direction_full.values.reshape(-1, 1)  # Ensure it's (N, 1)
 
     X_sequences = []
     y_sequences_direction = []
@@ -113,9 +73,7 @@ def prepare_data_for_classification(X_df, y_series, window_size=30):
         seq = X_values[i - window_size:i]
         X_sequences.append(seq)
 
-        # y_sequences_direction: The direction for the *last day* in the sequence, or the day *after* the sequence
-        # We want to predict the direction for the day corresponding to X_values[i]
-        # which means comparing y_series.iloc[i] with current_day_close_for_direction.iloc[i]
+        # y_sequences_direction: The direction for the day corresponding to X_values[i]
         y_sequences_direction.append(y_direction_values[i])
 
     # Convert to 3D arrays (samples, timesteps, features)
@@ -337,8 +295,9 @@ def train_evaluate_transformer_classifier(X_train_scaled, X_test_scaled, y_train
 
 def main():
     # File paths
-    features_file = r'D:\machine_learning\pythonProject1\data\纳斯达克100指数(25年数据集)_index_with_features.csv'
-    target_file = r'D:\machine_learning\pythonProject1\data\纳斯达克100指数(25年数据集)_target_next_day_close.csv'
+    # Updated to use the new enhanced features and direction target files
+    features_file = r'D:\machine_learning\pythonProject1\data\纳斯达克100_enhanced_features.csv'
+    target_file = r'D:\machine_learning\pythonProject1\data\纳斯达克100_direction_target.csv'
 
     # Define paths for saving model and scaler
     model_dir = r'D:\machine_learning\pythonProject1\model'

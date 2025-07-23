@@ -4,7 +4,12 @@ import matplotlib.pyplot as plt
 import seaborn as sns
 import os
 
-# Ignore warnings
+# --- Added for Chinese font support in Matplotlib ---
+plt.rcParams['font.sans-serif'] = ['SimHei', 'Arial Unicode MS'] # Use SimHei or Arial Unicode MS for Chinese characters
+plt.rcParams['axes.unicode_minus'] = False # Solve the problem of '-' displaying as a square
+# --- End of font configuration ---
+
+# Ignore warnings (this line is for general warnings, not specific font warnings)
 sns.set_style('whitegrid')
 pd.set_option('display.max_columns', 100)
 
@@ -37,10 +42,13 @@ def analyze_correlation(df):
         return None
 
     # Drop the target variable if it exists, as we are interested in feature correlation
-    # Assuming 'next_day_close' is the target.
-    features_df = df.drop(columns=['next_day_close'], errors='ignore')
+    # Assuming 'next_day_direction' is the target for classification tasks.
+    # If the file contains 'next_day_close' (for regression), it should also be dropped.
+    features_df = df.drop(columns=['next_day_direction', 'next_day_close'], errors='ignore')
 
     # Calculate the correlation matrix
+    # .corr() method by default handles NaNs by pairwise deletion (only uses non-NaN pairs)
+    # If an entire column is NaN, its correlations will be NaN.
     correlation_matrix = features_df.corr()
 
     print("\n--- Feature Correlation Matrix ---")
@@ -75,7 +83,8 @@ def visualize_correlation(correlation_matrix, save_path=None):
 
 def main():
     # File path for the feature-engineered data
-    features_file = r'D:\machine_learning\pythonProject1\data\纳斯达克100指数(25年数据集)_index_with_features.csv'
+    # Ensure this path points to the output of enhanced_feature_engineering.py
+    features_file = r'D:\machine_learning\pythonProject1\data\纳斯达克100_enhanced_features.csv'
 
     # Define path for saving the correlation heatmap
     figure_save_dir = r'D:\machine_learning\pythonProject1\result_figure'
